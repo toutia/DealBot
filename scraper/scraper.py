@@ -45,54 +45,65 @@ class LeBonCoinScraper:
         # open new context 
         # get offers 
         # save them 
-        async with self.context.expect_page() as search_page:
-                # make it more human by simulating mouse mouvement + clicking outside the center 
-                await search_item.click(modifiers=["Control"])
-                search_page = await search_page.value
-                await search_page.wait_for_load_state("domcontentloaded")
-                offers =  await search_page.locator('ul[data-test-id="listing-column"] > li:not([id]) > article a ').element_handles()
-          
-                print(len(offers))
-                for offer in offers[:3]:
-                    time.sleep(random.uniform(1,10))
-                    link = await offer.get_attribute("href")
-                    offer_id = link.split('/')[-1]
-     
-                    async with self.context.expect_page() as offer_page:
-                        await offer.click(modifiers=["Control"])
-                        offer_page = await  offer_page.value
-                        self.pages[offer_id]= offer_page
-                        await offer_page.wait_for_load_state("domcontentloaded")
-                        await self.get_offer_details(offer_id , offer_page)
+        try:
+            async with self.context.expect_page() as search_page:
+                    # make it more human by simulating mouse mouvement + clicking outside the center 
+                    await search_item.click(modifiers=["Control"])
+                    search_page = await search_page.value
+                    await search_page.wait_for_load_state("domcontentloaded")
+                    offers =  await search_page.locator('ul[data-test-id="listing-column"] > li:not([id]) > article a ').element_handles()
+            
+                    print(len(offers))
+                    for offer in offers:
+                        time.sleep(random.uniform(1,10))
+                        link = await offer.get_attribute("href")
+                        offer_id = link.split('/')[-1]
+                        if self.database_manager.exists(offer_id):
+                            print("nothing new")
+                            break
+                        async with self.context.expect_page() as offer_page:
+                            await offer.click(modifiers=["Control"])
+                            offer_page = await  offer_page.value
+                            self.pages[offer_id]= offer_page
+                            await offer_page.wait_for_load_state("load")
+                            await self.get_offer_details(offer_id , offer_page)
 
-                print(self.pages)
+                    print(self.pages)
+        except Exception as e:
+            print(e)
 
-        time.sleep(10)
+
 
     async def get_offer_details(self,offer_id , page):
-        title = await page.locator('div[data-qa-id="adview_title"]').inner_text() 
-        price  = await page.locator('div[data-qa-id="adview_price"] ').nth(0).inner_text()
-        url =  page.url
         try:
-            location =  await page.locator('section[id="map"] p').inner_text()
-        except :
-            location = 'not found'
-        date_text = await page.locator('h2:text("À propos de l’annonce")').locator('..').locator('span').nth(1).inner_text()
-        criteria = await page.locator('div[data-qa-id="criteria_container"] ').inner_text()
-        description =  await page.locator('p[id="readme-content"] ').inner_text()
+            title = await page.locator('div[data-qa-id="adview_title"]').inner_text() 
+            price  = await page.locator('div[data-qa-id="adview_price"] ').nth(0).inner_text()
+            url =  page.url
+            try:
+                location =  await page.locator('section[id="map"] p').inner_text()
+            except :
+                location = 'not found'
+            date_text = await page.locator('h2:text("À propos de l’annonce")').locator('..').locator('span').nth(1).inner_text()
+            criteria = await page.locator('div[data-qa-id="criteria_container"] ').inner_text()
+            
+            description =  await page.text_content('p[id="readme-content"] ')
+   
 
-        offer = {
-            "id": offer_id,
-            "title": title,
-            "price": price,
-            "url": url,
-            "location": location,
-            "date": date_text,
-            "criteria": criteria,
-            "description": description
-        }
+            offer = {
+                "id": offer_id,
+                "title": title,
+                "price": price,
+                "url": url,
+                "location": location,
+                "date": date_text,
+                "criteria": criteria,
+                "description": description
+            }
+            print(description)
 
-        self.database_manager.save_offer(offer)
+            self.database_manager.save_offer(offer)
+        except Exception as e :
+            print(e)
                 
 
 

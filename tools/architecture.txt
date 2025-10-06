@@ -1,0 +1,392 @@
+Great — now that you mean DealBot, here’s a focused, actionable blueprint: exactly what an AI agent for finding Leboncoin ads, contacting sellers, negotiating multi-turn, and emailing you the final summary should look like — tools, architecture, data model, prompt templates, key code snippets, safety/legal notes, and a practical step-by-step build plan.
+
+1 — System overview (single diagram)
+[Scheduler] --> [Scraper/Harvester] --> [Ad Queue / DB] --> [Negotiation Orchestrator]
+                                                      |            |
+                                                      |            v
+                                                      |        [LLM Agent(s)]
+                                                      |            |
+                                                      |         [Strategy Module]
+                                                      v            v
+                                                [Conversation Store] --> [Notifier (Email,SMS)]
+                                                              |
+                                                      [Human-in-the-loop UI]
+
+
+
+
+
+
+2 — Core components & tools
+
+Scraper / Harvester
+
+Tools: Playwright (recommended), Puppeteer, or Selenium.
+
+Responsibility: discover new ads by filters (keywords, price range, location), fetch ad metadata and initial contact method.
+
+Anti-blocking: rotate proxies, respect robots rules, randomized delays, and mimic human headers.
+
+Queue & Storage
+
+DB: PostgreSQL (production) / SQLite (prototype).
+
+Redis: task queue + ephemeral state (RQ / Celery with Redis).
+
+Stores: ad record, negotiation sessions, message history, seller contact info, agent decisions, audit logs.
+
+Negotiation Orchestrator
+
+Implements the conversation loop, state machine (NEW → CONTACTED → NEGOTIATING → AGREED / FAILED).
+
+Enqueues contact attempts, rate-limits messaging to avoid bans.
+
+LLM Agent(s)
+
+Role: craft messages, parse replies, draft counters, summarize.
+
+Options:
+
+Prototype: local LLaMA-3 3B quantized (on Orin or dev machine) for phrasing and summaries.
+
+Prod / best quality: OpenAI GPT-4o/GPT-4-turbo via API for higher negotiation skill.
+
+Orchestration frameworks: LangChain, Microsoft AutoGen, or custom agent loop.
+
+Strategy Module
+
+Rules + simple policy: initial offer (e.g., 70% asking), max acceptable price, concession schedule (step %), urgency weighting.
+
+Optional: RL / bandit / historical analytics later.
+
+Communicator (Messaging)
+
+If Leboncoin provides API → use it.
+
+Else: browser automation to log in + send/receive messages (Playwright scripts).
+
+Must parse and normalize seller replies into structured data.
+
+Human-in-the-loop UI
+
+Web dashboard (React/Vue) showing active negotiations, suggested next action, one-click approve/cancel, and manual message compose.
+
+Notification channels: email (SMTP/Gmail API), Telegram/Slack for alerts.
+
+Notifier / Email generator
+
+Build templated email with product details, final price, seller contact info, negotiation transcript, meeting instructions.
+
+Send via SMTP or transactional email (SendGrid, Mailgun).
+
+Monitoring / Logging
+
+Observability: Prometheus + Grafana or simple logs.
+
+Track: number of negotiations, response rate, conversion rate, avg final discount.
+
+
+
+
+
+
+
+
+3 — Data model (core tables)
+
+ads (id, title, price, location, url, scraped_at, status)
+
+sessions (session_id, ad_id, status, created_at, last_updated)
+
+messages (id, session_id, from_agent_bool, text, timestamp, parsed_entities)
+
+offers (session_id, step, offered_price, seller_price, accepted_bool)
+
+users (your contact preferences, approval thresholds, email)
+
+audit_logs (action, by, timestamp)
+
+
+
+
+
+
+
+4 — Conversation/state machine (simple)
+
+States: NEW → CONTACTING → AWAITING_REPLY → NEGOTIATING → READY_FOR_APPROVAL → COMPLETED / FAILED.
+
+Transitions triggered by events: scrape, send_message, receive_reply, timeout, human_approve.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+5 — Prompt templates (practical, French examples)
+
+System instruction (for every call):
+
+Tu es un négociateur poli et efficace pour acheteurs sur Leboncoin. Tu dois :
+- Proposer une offre initiale selon la stratégie fournie.
+- Rester poli en français, bref, et professionnel.
+- Préserver options de repli (ex: "si je peux venir aujourd'hui").
+- Toujours inclure question de disponibilité.
+Réponds uniquement par le message à envoyer au vendeur (pas de commentaires).
+
+
+Compose first contact (example):
+
+Context:
+Titre: {title}
+Prix demandé: {asking_price}€
+Localisation: {location}
+Instruction: Offre initiale cible: {initial_offer}€, max acceptable: {max_price}€. Keep message < 3 sentences.
+
+Prompt:
+Écris un message poli en français pour demander si l'objet est toujours disponible et proposer {initial_offer}€ si possible. Terminer par une question sur la disponibilité pour enlèvement rapide.
+
+
+Parse seller reply (extract intent & price):
+
+Ask LLM to output JSON: { "available": true/false, "counter_offer": 850, "willing_to_neg": true, "notes": "..." }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+6 — Example code snippets (minimal prototype)
+
+A. Scrape with Playwright (python) — fetch ads list:
+
+from playwright.sync_api import sync_playwright
+def fetch_ads(search_url):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(search_url)
+        # adapt selectors to Leboncoin DOM
+        items = page.query_selector_all(".AdList_item")
+        results = []
+        for it in items:
+            title = it.query_selector(".AdCard_title").inner_text()
+            price = it.query_selector(".AdCard_price").inner_text()
+            url = it.query_selector("a").get_attribute("href")
+            results.append({"title": title, "price": price, "url": url})
+        browser.close()
+    return results
+
+
+B. FastAPI endpoint to ask LLM to compose message
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+import requests  # or local llama_cpp
+app = FastAPI()
+
+class ComposeReq(BaseModel):
+    ad_id: int
+    title: str
+    asking_price: int
+    initial_offer: int
+    max_price: int
+
+@app.post("/compose")
+def compose(req: ComposeReq):
+    prompt = f"...(use template above)..."
+    # Example calling OpenAI (pseudo)
+    r = openai.chat.completions.create(model="gpt-4o", messages=[{"role":"system","content":system},{"role":"user","content":prompt}])
+    return {"message": r["choices"][0]["message"]["content"]}
+
+
+C. Simple negotiation loop pseudocode
+
+1. Get new ad.
+2. Compute initial_offer = rules(asking_price, user_pref).
+3. Compose message via LLM.
+4. Send message (Playwright automation).
+5. Wait for reply (poll mailbox or message page).
+6. Parse reply with LLM -> structured JSON.
+7. If seller counters and counter <= max_price:
+     generate counter-offer using strategy; send.
+   Else if seller accepts: mark READY_FOR_APPROVAL.
+   Else: escalate to human if ambiguous.
+8. On READY_FOR_APPROVAL -> send email summary to user.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+7 — Negotiation strategy (practical rules)
+
+Initial offer: initial = round(asking * (0.6..0.8)) based on category.
+
+Concession steps: when countered, increment by X% toward seller price (configurable).
+
+Urgency bonus: if seller mentions “à enlever vite”, increase offer slightly.
+
+Blacklists: avoid known scam patterns; flag if seller requests off-platform payment.
+
+Stop conditions: when offer >= max_price, if seller becomes unresponsive for N days, or if conversation tone indicates a trap.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+8 — Human-in-the-loop & safety (non-negotiable)
+
+Require manual approval before sending payment or confirming pickup.
+
+Never accept payment methods that bypass platform protections (bank transfer vs cash meet-up guidelines).
+
+Present clear email with all data and a single “Proceed” button that performs no money transfer — just confirms you’ll contact seller manually / finalize logistics.
+
+Respect Leboncoin's terms of service — rate-limit messages, avoid impersonation.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+9 — Deployment & scaling notes
+
+Prototype: single server (or Jetson) running scraping, FastAPI, local LLM for drafting, and Playwright for messaging; SQLite/Redis for state.
+
+Production: separate services (scraper fleet with proxies), orchestration with Kubernetes, persistent Postgres, separate LLM service (API or powerful GPU servers), monitoring.
+
+Scaling LLMs: if many concurrent negotiations use API (OpenAI) or a GPU cluster with vLLM / Triton.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+10 — Anti-bot & legal practicalities
+
+If you use automation to message via the website UI, do it conservatively. Aggressive automation can suspend accounts.
+
+Consider contacting Leboncoin for API access / partnership if you plan many users.
+
+Log consent: include a note in emails that negotiation initiated by an automated assistant and that the user must confirm.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+11 — Minimum viable steps (MVP) — what to build first (practical 1-week plan)
+
+Day 0–1: Simple scraper that saves 10 matching ads to DB.
+
+Day 1–2: FastAPI endpoint + LLM call (local or OpenAI) that composes a polite first message (mock sending).
+
+Day 2–3: Implement mock seller replies (simulate 3 types: accept, counter, reject). Implement parser to extract counter price.
+
+Day 3–4: Implement negotiation loop with rule-based strategy and LLM for phrasing. When "accepted" produce an email summary.
+
+Day 4–5: Replace mock replies with actual message send/receive automation (Playwright) and test with a throwaway Leboncoin account (respect TOS).
+
+Day 5–7: Add human-in-loop UI to approve final deals, add logging and basic monitoring.
+
+12 — Costs & model choice recap
+
+Prototype: local LLaMA-3 3B quantized (cheap / offline) for phrasing, or GPT-3.5-turbo API (cheap & easy).
+
+Production: GPT-4/turbo or GPT-4o for best negotiation phrasing and robustness. Based on earlier cost estimates, ~20 negotiations/day ≈ $50/month (GPT-4-turbo estimate).
+
+Consider hybrid: use local model for routine phrasing/summarizing, fall back to API for complex negotiations.
+
+13 — Example final email summary template (send to you)
+Subject: DealBot — Ready to conclude: Electric Bike — 800€ (was 900€)
+
+Ad: Electric bike, 2020, 28", URL: ...
+Seller: Jean Dupont — phone: 06xx...
+Negotiation summary:
+- Initial ask: 900€
+- Agent initial: 700€
+- Seller counter: 850€
+- Final agreed: 800€ (seller confirmed pick-up tomorrow at 10:00)
+Messages: [link to transcript]
+Action needed: [Accept & proceed]  [Reject]
+Notes: Payment method: cash on pickup. Always meet in public place.

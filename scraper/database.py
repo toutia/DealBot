@@ -43,6 +43,10 @@ class DatabaseManager:
         ))
         self.conn.commit()
 
+    def exists(self, offer_id):
+        self.cursor.execute("SELECT 1 FROM offers WHERE id = ? LIMIT 1", (offer_id,))
+        return self.cursor.fetchone() is not None
+
 
 if __name__ == '__main__':
     offer = {
