@@ -1,0 +1,30 @@
+sudo groupadd docker   # (only if it doesn't already exist)
+sudo usermod -aG docker $USER
+newgrp docker
+
+
+sudo apt install -y nvidia-container-toolkit-base
+sudo apt install -y nvidia-container-toolkit
+sudo nano /etc/docker/daemon.json
+{
+  "default-runtime": "nvidia",
+  "runtimes": {
+    "nvidia": {
+      "path": "nvidia-container-runtime",
+      "runtimeArgs": []
+    }
+  }
+}
+sudo systemctl restart docker
+
+
+
+
+
+docker pull ollama/ollama
+docker run -d --gpus all -v ollama:/root/.ollama -p 11434:11434 --name ollama ollama/ollama
+
+
+Ollama is running at http://localhost:11434
+
+sudo docker exec -it ollama ollama pull deepseek-coder-v2:16b

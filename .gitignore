@@ -1,0 +1,49 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.log
+*.env
+.env
+.env.*
+.venv/
+venv/
+ENV/
+env/
+
+# --- SQLite database ---
+*.db
+*.sqlite
+*.sqlite3
+
+# --- IDE / Editor junk ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Playwright / Browser data ---
+playwright-report/
+test-results/
+trace.zip
+user_data/
+screenshots/
+
+# --- Virtual environments / dependencies ---
+.venv/
+venv/
+pip-wheel-metadata/
+*.egg-info/
+
+# --- Cache ---
+.cache/
+*.log
+
+# --- OS-specific ---
+ehthumbs.db
+desktop.ini
+
+# --- Optional: Python notebooks ---
+*.ipynb_checkpoints/
