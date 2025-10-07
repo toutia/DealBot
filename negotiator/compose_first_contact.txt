@@ -1,0 +1,8 @@
+Context:
+Titre: {title}
+Prix demandé: {asking_price}€
+Localisation: {location}
+Instruction: Offre initiale cible: {initial_offer}€, max acceptable: {max_price}€. Keep message < 3 sentences.
+
+Prompt:
+Écris un message poli en français pour demander si l'objet est toujours disponible et proposer {initial_offer}€ si possible. Terminer par une question sur la disponibilité pour enlèvement rapide.
