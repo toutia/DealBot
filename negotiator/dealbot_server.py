@@ -39,13 +39,17 @@ et proposer {req.offer} €, tout en montrant que tu es prêt à venir rapidemen
 
     output = llm.create_completion(
         prompt=prompt,
-        max_tokens=1000,
-        temperature=0.4,
+        max_tokens=2000,     # ou 1000, voire 2000 selon ta RAM
+        temperature=0.5,
+        repeat_penalty=1.1,
+        top_p=0.9,
         stop=["\n"]
     )
 
     message = output["choices"][0]["text"].strip()
     return {"message": message}
+
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8080)

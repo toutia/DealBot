@@ -3,7 +3,9 @@ import random
 from playwright.async_api import async_playwright
 import time
 from database import DatabaseManager
-
+import json
+import os
+from playwright.sync_api import TimeoutError
 
 class LeBonCoinScraper:
     def __init__(self):
@@ -14,6 +16,8 @@ class LeBonCoinScraper:
         self.search_items=[]
         self.pages= {}
         self.database_manager= DatabaseManager()
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),"config.json")) as f:
+            self.credentials = json.load(f)
 
     async def launch_browser(self):
         try:
@@ -22,6 +26,12 @@ class LeBonCoinScraper:
             self.context = self.browser.contexts[0]
             page = await self.context.new_page()
             await page.goto("https://www.leboncoin.fr/")
+
+            await page.wait_for_load_state('networkidle')
+
+            await self.connect(page)
+
+            await page.wait_for_load_state('networkidle')
 
             # the list of saved searches 
 
@@ -106,8 +116,51 @@ class LeBonCoinScraper:
             print(e)
                 
 
+    async def connect(self, page):
+            
+            try:
+                mon_compte = page.locator("a[aria-label='Mon compte']").first
+                # Try to find the locator within 3 seconds
+                await mon_compte.wait_for(state="visible", timeout=random.uniform(20000, 30000))
+            except TimeoutError as e:
+                print(e)
+                connection_button = page.get_by_role("button", name="Se connecter")
+                await asyncio.sleep(random.uniform(1, 4.3))
+                await connection_button.click()
 
 
+
+                email = page.locator('input[id="email"]')
+                await asyncio.sleep(random.uniform(1, 4.3))
+                await email.click()
+                await asyncio.sleep(random.uniform(1, 4.3))
+                await email.fill(self.credentials["email"])
+                await asyncio.sleep(random.uniform(1, 4.3))
+
+                next= page.get_by_role("button", name="Continuer")
+                await next.click()
+
+                password = page.locator('input[id="password"]')
+                await asyncio.sleep(random.uniform(1, 4.3))
+                await password.click()
+                await asyncio.sleep(random.uniform(1, 4.3))
+                await password.fill(self.credentials["password"])
+                await asyncio.sleep(random.uniform(1, 4.3))
+
+
+                connection_button = page.get_by_role("button", name="Se connecter")
+                await asyncio.sleep(random.uniform(1, 4.3))
+                await connection_button.click()
+                await asyncio.sleep(random.uniform(1, 4.3))
+      
+    
+
+
+
+
+
+
+      
 
 
 

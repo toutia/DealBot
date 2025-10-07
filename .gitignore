@@ -47,3 +47,5 @@ desktop.ini
 
 # --- Optional: Python notebooks ---
 *.ipynb_checkpoints/
+
+config.json
