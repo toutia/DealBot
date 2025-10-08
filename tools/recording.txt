@@ -1,0 +1,31 @@
+gst-launch-1.0 -e \
+    \
+    ximagesrc use-damage=0 show-pointer=true ! \
+        video/x-raw,framerate=60/1 ! videoconvert ! nvvidconv ! \
+        'video/x-raw(memory:NVMM),format=NV12,width=2560,height=1440' ! \
+        nvv4l2h264enc control-rate=1 iframeinterval=60 bitrate=120000000 ! \
+        h264parse ! mp4mux name=mux_screen ! \
+        filesink location=screen_output.mp4 \
+    \
+    v4l2src device=/dev/video0 ! \
+        image/jpeg, width=1920, height=1080, framerate=30/1 ! \
+        jpegdec ! videoconvert ! nvvidconv ! \
+        'video/x-raw(memory:NVMM),format=NV12' ! \
+        nvv4l2h264enc maxperf-enable=1 control-rate=1 bitrate=10000000 ! \
+        h264parse ! queue ! mux_av. \
+    \
+    pulsesrc device="alsa_input.usb-Blue_Microphones_Yeti_X_1942SG00AQB8_888-000316110306-00.analog-stereo" ! \
+        audioresample ! audio/x-raw,rate=48000,channels=2 ! \
+        audioconvert ! voaacenc bitrate=192000 ! \
+        queue ! mux_av. \
+    \
+    mp4mux name=mux_av ! filesink location=cam_audio_sync.mp4
+
+
+# to preview 
+
+gst-launch-1.0 v4l2src device=/dev/video0 ! \
+    image/jpeg, width=1280, height=720, framerate=30/1 ! \
+    jpegdec ! nvvidconv flip-method=4 ! \
+    'video/x-raw(memory:NVMM),format=NV12' ! \
+    nv3dsink sync=false

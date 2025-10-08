@@ -95,6 +95,12 @@ class LeBonCoinScraper:
                 location = 'not found'
             date_text = await page.locator('h2:text("À propos de l’annonce")').locator('..').locator('span').nth(1).inner_text()
             criteria = await page.locator('div[data-qa-id="criteria_container"] ').inner_text()
+            try:
+                voir_plus= page.get_by_role("button", name="Voir plus", exact=True)
+                await asyncio.sleep(random.uniform(1, 4.3))
+                await voir_plus.click()
+            except TimeoutError as e:
+                pass
             
             description =  await page.text_content('p[id="readme-content"] ')
    
@@ -118,40 +124,60 @@ class LeBonCoinScraper:
 
     async def connect(self, page):
             
-            try:
-                mon_compte = page.locator("a[aria-label='Mon compte']").first
-                # Try to find the locator within 3 seconds
-                await mon_compte.wait_for(state="visible", timeout=random.uniform(20000, 30000))
-            except TimeoutError as e:
-                print(e)
-                connection_button = page.get_by_role("button", name="Se connecter")
-                await asyncio.sleep(random.uniform(1, 4.3))
-                await connection_button.click()
+        try:
+            mon_compte = page.locator("a[aria-label='Mon compte']").first
+            # Try to find the locator within 3 seconds
+            await mon_compte.wait_for(state="visible", timeout=random.uniform(20000, 30000))
+        except TimeoutError as e:
+            print(e)
+            connection_button = page.get_by_role("button", name="Se connecter")
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await connection_button.click()
 
 
 
-                email = page.locator('input[id="email"]')
-                await asyncio.sleep(random.uniform(1, 4.3))
-                await email.click()
-                await asyncio.sleep(random.uniform(1, 4.3))
-                await email.fill(self.credentials["email"])
-                await asyncio.sleep(random.uniform(1, 4.3))
+            email = page.locator('input[id="email"]')
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await email.click()
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await email.fill(self.credentials["email"])
+            await asyncio.sleep(random.uniform(1, 4.3))
 
-                next= page.get_by_role("button", name="Continuer")
-                await next.click()
+            next= page.get_by_role("button", name="Continuer")
+            await next.click()
 
-                password = page.locator('input[id="password"]')
-                await asyncio.sleep(random.uniform(1, 4.3))
-                await password.click()
-                await asyncio.sleep(random.uniform(1, 4.3))
-                await password.fill(self.credentials["password"])
-                await asyncio.sleep(random.uniform(1, 4.3))
+            password = page.locator('input[id="password"]')
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await password.click()
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await password.fill(self.credentials["password"])
+            await asyncio.sleep(random.uniform(1, 4.3))
 
 
-                connection_button = page.get_by_role("button", name="Se connecter")
-                await asyncio.sleep(random.uniform(1, 4.3))
-                await connection_button.click()
-                await asyncio.sleep(random.uniform(1, 4.3))
+            connection_button = page.get_by_role("button", name="Se connecter")
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await connection_button.click()
+            await asyncio.sleep(random.uniform(1, 4.3))
+
+
+
+    async def first_contact(self,offer_page):
+        
+
+
+        contact_button=  offer_page.get_by_role("button", name="Contacter")
+        await asyncio.sleep(random.uniform(1, 4.3))
+        await contact_button.click()
+
+
+        
+
+
+
+
+
+        
+
       
     
 
