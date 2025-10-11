@@ -1,25 +1,42 @@
 gst-launch-1.0 -e \
     \
     ximagesrc use-damage=0 show-pointer=true ! \
-        video/x-raw,framerate=60/1 ! videoconvert ! nvvidconv ! \
+        video/x-raw,framerate=60/1 ! \
+        videoconvert ! nvvidconv ! \
         'video/x-raw(memory:NVMM),format=NV12,width=2560,height=1440' ! \
-        nvv4l2h264enc control-rate=1 iframeinterval=60 bitrate=120000000 ! \
-        h264parse ! mp4mux name=mux_screen ! \
-        filesink location=screen_output.mp4 \
+        nvv4l2h265enc \
+            maxperf-enable=1 \
+            preset-level=1 \
+            insert-sps-pps=1 \
+            control-rate=0 \
+            bitrate=120000000 \
+            iframeinterval=120 \
+            qp-range="18,22:20,25:22,30" ! \
+        h265parse ! mp4mux name=mux_screen ! \
+        filesink location=screen_output_hevc.mp4 sync=true async=false \
     \
     v4l2src device=/dev/video0 ! \
-        image/jpeg, width=1920, height=1080, framerate=30/1 ! \
-        jpegdec ! videoconvert ! nvvidconv ! \
-        'video/x-raw(memory:NVMM),format=NV12' ! \
-        nvv4l2h264enc maxperf-enable=1 control-rate=1 bitrate=10000000 ! \
-        h264parse ! queue ! mux_av. \
+        image/jpeg,width=1920,height=1080,framerate=30/1 ! \
+        jpegdec ! \
+        video/x-raw,format=I420 ! \
+        nvvidconv ! 'video/x-raw(memory:NVMM),format=NV12' ! \
+        nvv4l2h265enc \
+            maxperf-enable=1 \
+            preset-level=1 \
+            insert-sps-pps=1 \
+            control-rate=0 \
+            bitrate=15000000 \
+            iframeinterval=120 \
+            qp-range="18,22:20,25:22,30" ! \
+        h265parse ! queue ! mux_av. \
     \
     pulsesrc device="alsa_input.usb-Blue_Microphones_Yeti_X_1942SG00AQB8_888-000316110306-00.analog-stereo" ! \
         audioresample ! audio/x-raw,rate=48000,channels=2 ! \
         audioconvert ! voaacenc bitrate=192000 ! \
         queue ! mux_av. \
     \
-    mp4mux name=mux_av ! filesink location=cam_audio_sync.mp4
+    mp4mux name=mux_av ! filesink location=cam_audio_sync_hevc.mp4 sync=true async=false
+
 
 
 # to preview 

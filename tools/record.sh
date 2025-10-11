@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Get timestamp for unique filenames
+timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
+
+gst-launch-1.0 -e \
+  \
+  ximagesrc use-damage=0 do-timestamp=true show-pointer=true ! \
+    video/x-raw,framerate=60/1 ! \
+    videoconvert ! \
+    video/x-raw,format=I420,width=2560,height=1440,framerate=60/1 ! \
+    nvvidconv interpolation-method=5 ! \
+    'video/x-raw(memory:NVMM),format=I420' ! \
+    queue ! \
+    nvv4l2h265enc maxperf-enable=1 control-rate=0 bitrate=120000000 iframeinterval=120 insert-sps-pps=1 ! \
+    h265parse ! queue ! mux_screen. \
+  \
+  v4l2src device=/dev/video0 ! \
+    image/jpeg,width=1920,height=1080,framerate=30/1 ! \
+    jpegdec ! \
+    videoconvert ! \
+    video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! \
+    nvvidconv interpolation-method=5 ! \
+    'video/x-raw(memory:NVMM),format=I420' ! \
+    queue ! \
+    nvv4l2h265enc maxperf-enable=1 control-rate=0 bitrate=20000000 iframeinterval=60 insert-sps-pps=1 ! \
+    h265parse ! queue ! mux_av. \
+  \
+  pulsesrc device="alsa_input.usb-Blue_Microphones_Yeti_X_1942SG00AQB8_888-000316110306-00.analog-stereo" ! \
+    audioresample ! audio/x-raw,rate=48000,channels=2 ! \
+    audioconvert ! voaacenc bitrate=192000 ! \
+    queue ! mux_av. \
+  \
+  mp4mux name=mux_screen ! filesink location="screen_output_${timestamp}.mp4" sync=false async=false \
+  mp4mux name=mux_av ! filesink location="cam_audio_sync_${timestamp}.mp4" sync=false async=false

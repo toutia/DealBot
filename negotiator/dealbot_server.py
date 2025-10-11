@@ -1,3 +1,4 @@
+from typing import final
 from fastapi import FastAPI
 from pydantic import BaseModel
 from llama_cpp import Llama
@@ -35,11 +36,13 @@ import pickle
 
 
  curl -X POST http://localhost:8080/chat   -H "Content-Type: application/json"   -d '{
-    "chat_id": "123456",
+    "chat_id": "123462",
     "role": "user",
-    "content": "Bonjour, je vend un iphone 14 pro max a 1000 euros prix ferme , non serieux s abstenir "
+    "content": " Bonjour, je vends mon vélo électrique Peugeot à 900 €, en très bon état. "
   }'
-
+ curl -X POST http://localhost:8080/evaluate   -H "Content-Type: application/json"   -d '{
+    "chat_id": "123456"
+  }'
 
 """
 app = FastAPI()
@@ -128,9 +131,11 @@ async def chat(turn: ChatTurn):
     output = llm.create_chat_completion(
         messages=messages,
         temperature=0.5,
-        max_tokens=256,
+        max_tokens=4096,
     )
-    print(output    )
+    print(output)
+
+
 
     reply = output["choices"][0]["message"]["content"].strip()
     final_reply = extract_final_message(reply)
@@ -149,7 +154,58 @@ async def chat(turn: ChatTurn):
     except Exception as e:
         print(f"⚠️ Error saving state: {e}")
 
+
+   
+
     return {"reply": final_reply}
+
+
+class Chat(BaseModel):
+    chat_id: str
+
+
+@app.post("/evaluate")
+async def chat(chat: Chat):
+
+    # Ask the model if the conversation is complete
+    json_path = get_json_session_path(chat.chat_id)
+    if os.path.exists(json_path):
+        with open(json_path, "r") as f:
+            messages = json.load(f)
+    conversation_text = "\n".join(
+    f"{msg['role'].capitalize()}: {msg['content']}"
+    for msg in messages[1:] # skip the system message 
+    )   
+
+    check_prompt = f"""
+    Analyse cette conversation entre un acheteur et un vendeur sur Leboncoin.
+    Réponds uniquement par "TERMINÉ" si les deux parties se sont mises d’accord sur le prix, la date et le lieu de rendez-vous.
+    Sinon réponds "EN COURS".répond par un seul mot "TERMINÉ" ou "EN COURS" seulement.
+
+    Conversation :
+    {conversation_text}
+    """
+
+    check = llm.create_completion(
+        prompt=check_prompt,
+        temperature=0,
+        max_tokens=4096
+    )
+
+
+    output = check["choices"][0]["text"].strip()
+    print(output)
+    status= extract_final_message(output)
+    if "TERMINÉ" in status:
+        return {
+            "chat_id": chat.chat_id,
+            "status": "TERMINÉ",
+        }
+    else :
+        return {
+            "chat_id": chat.chat_id,
+            "status": "En cours",
+        }
 
 
 if __name__ == "__main__":
