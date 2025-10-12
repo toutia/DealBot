@@ -31,46 +31,91 @@ class LeBonCoinScraper:
             self.browser = await self.playwright.chromium.connect_over_cdp("http://127.0.0.1:9222/")
             self.context = self.browser.contexts[0]
 
-            await self.close_leboncoin_tabs()
-            page = await self.context.new_page()
-            await page.goto("https://www.leboncoin.fr/")
-            await page.wait_for_load_state("networkidle")
-
-            await self.connect(page)
-            await page.wait_for_load_state("networkidle")
-
-            # get saved searches
-            self.search_items = await page.locator(
-                'section[aria-labelledby="recent-searches-title"] a'
-            ).element_handles()
-
-            if not self.search_items:
-                print("No saved searches found.")
-                return {"status": "no_saved_searches"}
-
-            time.sleep(random.uniform(3, 10))
-            await self.get_offers(self.search_items[0])
-
+          
         except Exception as e:
             print(f"An error occurred: {e}")
             return {"error": str(e)}
 
-        finally:
-            if self.browser:
-                await self.browser.close()
-            if self.playwright:
-                await self.playwright.stop()
+    
+    async def scrape(self):
 
-        return {"status": "done"}
+        if not self.context:
+            await self.launch_browser()
 
-    async def close_leboncoin_tabs(self):
+        await self.close_tabs(pattern='leboncoin')
+        page = await self.context.new_page()
+        await page.goto("https://www.leboncoin.fr/")
+        await page.wait_for_load_state("networkidle")
+
+        await self.connect(page)
+        await page.wait_for_load_state("networkidle")
+
+        # get saved searches
+        self.search_items = await page.locator(
+            'section[aria-labelledby="recent-searches-title"] a'
+        ).element_handles()
+
+        if not self.search_items:
+            print("No saved searches found.")
+            return {"status": "no_saved_searches"}
+
+        time.sleep(random.uniform(3, 10))
+        await self.get_offers(self.search_items[0])
+
+        
+    
+    async def has_new_messages(self, conversation):
+
         """
-        Close all open pages whose URL contains 'leboncoin'.
+        returns TRue if the conversations has new messsages else False 
+        """
+
+        return True
+    
+    async def handle_messages(self):
+        """
+        checks the messages page for new messages and replying automatically 
+
+        """
+        if not self.context:
+            await self.launch_browser()
+
+        page = await self.context.new_page()
+        await page.goto("https://www.leboncoin.fr/")
+        await page.wait_for_load_state("networkidle")
+
+        messages_button = page.locator('a[aria-label="Messages"]').first
+        await asyncio.sleep(random.uniform(1, 4.3))
+        await messages_button.click()
+        await page.wait_for_load_state("networkidle")
+        await asyncio.sleep(random.uniform(1, 4.3))
+
+        conversations = await page.locator('div[aria-label="Liste des conversations"] ul li a').all()
+
+        to_be_processed = [conversation  for conversation in conversations if await self.has_new_messages(conversation)]
+
+        for conv in to_be_processed:
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await conv.click()
+            # get new message 
+            # send it to server get reply 
+            # type it 
+            # validate 
+
+
+
+
+
+
+
+    async def close_tabs(self, pattern=' '):
+        """
+        Close all open pages whose URL contains pattern .
         Useful for cleanup after scraping.
         """
         try:
             for page in self.context.pages:
-                if "leboncoin" in page.url.lower():
+                if pattern in page.url.lower():
                     print(f"Closing tab: {page.url}")
                     await page.close()
         except Exception as e:
@@ -182,7 +227,7 @@ async def home():
     return {"message": "LeBonCoin Scraper API is running!"}
 
 
-@app.get("/get-offers")
+@app.get("/trigger_scraping")
 async def trigger_scraping(background_tasks: BackgroundTasks):
     """
     Trigger the scraping process asynchronously.
@@ -190,8 +235,18 @@ async def trigger_scraping(background_tasks: BackgroundTasks):
     requests.get("http://127.0.0.1:8080/get-offers")
     """
     scraper = LeBonCoinScraper()
-    background_tasks.add_task(scraper.launch_browser)
+    background_tasks.add_task(scraper.scrape)
     return {"status": "Scraping started in background"}
+
+@app.get("/handle_messages")
+async def handle_messages(background_tasks: BackgroundTasks):
+    """
+    handle messages  asynchronously.
+    """
+    scraper = LeBonCoinScraper()
+    background_tasks.add_task(scraper.handle_messages)
+    return {"status": "Hnadling messages started in background"}
+
 
 
 # ========== Run app directly ==========

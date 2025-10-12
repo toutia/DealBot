@@ -36,7 +36,7 @@ import pickle
 
 
  curl -X POST http://localhost:8080/chat   -H "Content-Type: application/json"   -d '{
-    "chat_id": "123462",
+    "chat_id": "123464",
     "role": "user",
     "content": " Bonjour, je vends mon vélo électrique Peugeot à 900 €, en très bon état. "
   }'
@@ -107,6 +107,9 @@ async def chat(turn: ChatTurn):
                 llm.load_state(state)
         except Exception as e:
             print(f"⚠️ Error loading state: {e}")
+    
+    with open(os.path.join(os.path.dirname(__file__),'system_prompt.txt'), 'r') as f:
+        system_prompt= f.read()
 
     # ---- Load or initialize message history ----
     if os.path.exists(json_path):
@@ -116,11 +119,7 @@ async def chat(turn: ChatTurn):
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "Tu es DealBot, un assistant de négociation poli et naturel "
-                    "pour les échanges sur Leboncoin. "
-                    "Rédige des messages concis et humains, sans insister."
-                ),
+                "content": system_prompt,
             }
         ]
 
@@ -199,12 +198,12 @@ async def chat(chat: Chat):
     if "TERMINÉ" in status:
         return {
             "chat_id": chat.chat_id,
-            "status": "TERMINÉ",
+            "finished": True,
         }
     else :
         return {
             "chat_id": chat.chat_id,
-            "status": "En cours",
+            "finished": False,
         }
 
 
