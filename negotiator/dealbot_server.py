@@ -38,10 +38,10 @@ import pickle
  curl -X POST http://localhost:8080/chat   -H "Content-Type: application/json"   -d '{
     "chat_id": "123464",
     "role": "user",
-    "content": " Bonjour, je vends mon vélo électrique Peugeot à 900 €, en très bon état. "
+    "content": " ok pour 860; rendez vous demain a 8h au centre ville devant la mairie"
   }'
  curl -X POST http://localhost:8080/evaluate   -H "Content-Type: application/json"   -d '{
-    "chat_id": "123456"
+    "chat_id": "123464"
   }'
 
 """

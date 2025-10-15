@@ -8,6 +8,10 @@ from playwright.async_api import async_playwright
 from playwright.sync_api import TimeoutError
 from database import DatabaseManager
 import uvicorn
+import requests
+from utils import message_hash
+import logging
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="LeBonCoin Scraper API", version="1.0.0")
 
@@ -31,36 +35,49 @@ class LeBonCoinScraper:
             self.browser = await self.playwright.chromium.connect_over_cdp("http://127.0.0.1:9222/")
             self.context = self.browser.contexts[0]
 
-          
+            logger.info('Successfully launched a real browser !')     
         except Exception as e:
-            print(f"An error occurred: {e}")
-            return {"error": str(e)}
+            logger.error(f"An error occurred: {e}")
+
 
     
-    async def scrape(self):
+    async def run(self):
 
+        # Ensure browser context exists
         if not self.context:
             await self.launch_browser()
 
+        # Close existing leboncoin tabs
         await self.close_tabs(pattern='leboncoin')
+
+        # Open a new tab and go to leboncoin
         page = await self.context.new_page()
         await page.goto("https://www.leboncoin.fr/")
         await page.wait_for_load_state("networkidle")
 
+        # Authenticate session
         await self.connect(page)
+        logger.info("Session successfully authenticated.")
+
         await page.wait_for_load_state("networkidle")
 
-        # get saved searches
+        # Get saved searches
         self.search_items = await page.locator(
             'section[aria-labelledby="recent-searches-title"] a'
         ).element_handles()
 
         if not self.search_items:
-            print("No saved searches found.")
+            logger.warning("No saved searches found.")
             return {"status": "no_saved_searches"}
 
-        time.sleep(random.uniform(3, 10))
-        await self.get_offers(self.search_items[0])
+        # Wait randomly between 3–10 seconds
+        await asyncio.sleep(random.uniform(3, 10))
+
+        logger.info("Using saved search item to retrieve listings...")
+        await self.get_listings(self.search_items[0])
+
+        logger.info("Checking for new messages...")
+        await self.handle_messages()
 
         
     
@@ -84,6 +101,9 @@ class LeBonCoinScraper:
         await page.goto("https://www.leboncoin.fr/")
         await page.wait_for_load_state("networkidle")
 
+        await self.connect(page)
+        await page.wait_for_load_state("networkidle")
+
         messages_button = page.locator('a[aria-label="Messages"]').first
         await asyncio.sleep(random.uniform(1, 4.3))
         await messages_button.click()
@@ -97,10 +117,83 @@ class LeBonCoinScraper:
         for conv in to_be_processed:
             await asyncio.sleep(random.uniform(1, 4.3))
             await conv.click()
-            # get new message 
+            await page.wait_for_load_state("networkidle")
+            conv_id = page.url.split('/')[-1]
+            listing_id = self.database_manager.get_listing_id(conv_id)
+            #using the saved messages get the last one and compute its hash 
+            last_hash=''
+            with open(os.path.join('./sessions', f"{listing_id}.json")) as f :
+                messages= json.loads(f)
+                last_hash= message_hash(messages[-1])
+
+
+            
+
+
+
+           # get new message 
+            
+            seller_message= ""
+            messages_list = page.locator('div[aria-label="Conversation] ol li ').all()
+            for msg in messages_list[-1::]:
+                msg_text = await msg.inner_text()
+                msg_hash = message_hash(msg_text)
+                if msg_hash != last_hash:
+                    seller_message += '/n' + msg_text
+                else :
+                    break
+
+            
+            
+
+
+            
             # send it to server get reply 
-            # type it 
-            # validate 
+
+            data = {
+            "chat_id": listing_id,
+            "role": "user",
+            "content":seller_message
+            }
+
+            print(data)
+            
+            response = requests.post(url ='http://localhost:8080/chat', json= data)
+            if response.status_code==200:
+                to_send= json.loads(response.content)['reply']
+            # send the message 
+
+            text_area = page.locator('textarea[aria-label="Ecrire mon message"]').first
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await text_area.click()
+
+         
+
+
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await text_area.fill(to_send)
+
+            send_button= page.get_by_role("button", name="Envoyer mon message")
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await send_button.click()
+            await page.wait_for_load_state("networkidle")       
+
+            # it is time Now to evaluate the conversation for termination 
+
+            data = {
+            "chat_id": listing_id,
+            }
+            ready =False 
+            response = requests.post(url ='http://localhost:8080/evaluate', json= data)
+            if response.status_code==200:
+                ready= json.loads(response.content)['status']
+            if ready :
+                # send email with full report 
+
+
+
+            
+
 
 
 
@@ -121,41 +214,41 @@ class LeBonCoinScraper:
         except Exception as e:
             print(f"Error while closing tabs: {e}")
 
-    async def get_offers(self, search_item):
+    async def get_listings(self, search_item):
         try:
             async with self.context.expect_page() as search_page:
                 await search_item.click(modifiers=["Control"])
                 search_page = await search_page.value
                 await search_page.wait_for_load_state("domcontentloaded")
 
-                offers = await search_page.locator(
+                listings = await search_page.locator(
                     'ul[data-test-id="listing-column"] > li:not([id]) > article a'
                 ).element_handles()
 
-                print(f"Found {len(offers)} offers.")
+                print(f"Found {len(listings)} listings.")
 
-                for offer in offers:
+                for listing in listings:
                     time.sleep(random.uniform(1, 5))
-                    link = await offer.get_attribute("href")
+                    link = await listing.get_attribute("href")
                     if not link:
                         continue
 
-                    offer_id = link.split("/")[-1]
-                    if self.database_manager.exists(offer_id):
-                        print("Offer already in DB, stopping here...")
+                    listing_id = link.split("/")[-1]
+                    if self.database_manager.exists(listing_id):
+                        print("listing already in DB, stopping here...")
                         break
 
-                    async with self.context.expect_page() as offer_page:
-                        await offer.click(modifiers=["Control"])
-                        offer_page = await offer_page.value
-                        self.pages[offer_id] = offer_page
-                        await offer_page.wait_for_load_state("load")
-                        await self.get_offer_details(offer_id, offer_page)
+                    async with self.context.expect_page() as listing_page:
+                        await listing.click(modifiers=["Control"])
+                        listing_page = await listing_page.value
+                        self.pages[listing_id] = listing_page
+                        await listing_page.wait_for_load_state("load")
+                        await self.get_listing_details(listing_id, listing_page)
 
         except Exception as e:
             print(f"Error in get_offers: {e}")
 
-    async def get_offer_details(self, offer_id, page):
+    async def get_listing_details(self, listing_id, page):
         try:
             title = await page.locator('div[data-qa-id="adview_title"]').inner_text()
             price = await page.locator('div[data-qa-id="adview_price"]').nth(0).inner_text()
@@ -178,8 +271,8 @@ class LeBonCoinScraper:
 
             description = await page.text_content('p[id="readme-content"]')
 
-            offer = {
-                "id": offer_id,
+            listing = {
+                "id": listing_id,
                 "title": title,
                 "price": price,
                 "url": url,
@@ -189,11 +282,92 @@ class LeBonCoinScraper:
                 "description": description,
             }
 
-            print(f"Saving offer: {offer_id}")
-            self.database_manager.save_offer(offer)
+           
+            print(f"Saving listing: {listing_id}")
+            self.database_manager.save_listing(listing)
+
+            context = f"""
+
+                "title": {title},
+                "price": {price},
+                "location": {location},
+                "date": {date_text},
+                "criteria": {criteria},
+    
+            """
+
+            user_message_content = f"""
+            {description}
+
+            {context}
+            """
+
+
+            # sending first contact mesaage 
+
+            data = {
+            "chat_id": listing_id,
+            "role": "user",
+            "content":user_message_content
+            }
+
+            print(data)
+            to_send = ""
+            response = requests.post(url ='http://localhost:8080/chat', json= data)
+            if response.status_code==200:
+                to_send= json.loads(response.content)['reply']
+            # send the message 
+
+            contact_button = page.get_by_role("button", name="Contacter")
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await contact_button.click()
+
+
+            # text area 
+
+            text_area = page.locator('textarea[id="body"]').first
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await text_area.click()
+
+            delete_button = page.get_by_role("button", name="Supprimer le message") 
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await delete_button.click()
+
+
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await text_area.fill(to_send)
+
+            send_button= page.get_by_role("button", name="Envoyer")
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await send_button.click()
+            await page.wait_for_load_state("networkidle")
+
+
+            see_conversation =  page.get_by_role("button", name="Voir ma conversation")
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await see_conversation.click()
+            await page.wait_for_load_state("networkidle")
+
+            # save mapping between listing id and conversation id 
+            url = page.url
+            conversation_id = url.split('/')[-1]
+            conv = {
+                'conv_id': conversation_id,
+                'listing_id': listing_id
+            }
+            
+            self.database_manager.save_conversation(conv)
+
+
+
+
+
 
         except Exception as e:
             print(f"Error getting offer details: {e}")
+
+
+
 
     async def connect(self, page):
         try:
@@ -232,10 +406,10 @@ async def trigger_scraping(background_tasks: BackgroundTasks):
     """
     Trigger the scraping process asynchronously.
     Example:
-    requests.get("http://127.0.0.1:8080/get-offers")
+    requests.get("http://127.0.0.1:8080/trigger_scraping")
     """
     scraper = LeBonCoinScraper()
-    background_tasks.add_task(scraper.scrape)
+    background_tasks.add_task(scraper.run)
     return {"status": "Scraping started in background"}
 
 @app.get("/handle_messages")
