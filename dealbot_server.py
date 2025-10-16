@@ -6,6 +6,8 @@ import uvicorn
 import os, json,re
 from utils import *
 import pickle
+from datetime import datetime
+import locale
 """
 
 [
@@ -95,6 +97,9 @@ async def chat(turn: ChatTurn):
     with open(os.path.join(os.path.dirname(__file__),'system_prompt.txt'), 'r') as f:
         system_prompt= f.read()
 
+    locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")  # Pour les noms de jours/mois en français
+    current_time = datetime.now().strftime("Nous sommes le %A %d %B %Y à %Hh%M.")
+    system_prompt_with_time = f"{current_time}]\n{system_prompt}"
     # ---- Load or initialize message history ----
     if os.path.exists(json_path):
         with open(json_path, "r") as f:
@@ -103,7 +108,7 @@ async def chat(turn: ChatTurn):
         messages = [
             {
                 "role": "system",
-                "content": system_prompt,
+                "content": system_prompt_with_time,
             }
         ]
 
@@ -148,7 +153,7 @@ class Chat(BaseModel):
 
 
 @app.post("/evaluate")
-async def chat(chat: Chat):
+async def evaluate(chat: Chat):
 
     # Ask the model if the conversation is complete
     json_path = get_json_session_path(chat.chat_id)

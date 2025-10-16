@@ -9,8 +9,9 @@ from playwright.sync_api import TimeoutError
 from database import DatabaseManager
 import uvicorn
 import requests
-from utils import message_hash, send_email, get_json_session_path
 import logging
+from send_email import send_listing_report
+from utils import is_valid_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,125 @@ class LeBonCoinScraper:
 
         return 0
     
+
+
+    async def handle_conversation(self ,page):
+
+        """
+        The conversation needs to be selected before calling this method
+        
+        """
+        await page.wait_for_load_state("load")
+        conv_id = page.url.split('/')[-1]
+        logger.info(f'Checking conversation : {conv_id}')
+        
+                
+
+        total_user_text=''
+
+        try: 
+            # Get all message <li> elements
+            messages_list = await page.locator('div[aria-label="Conversation"] ol li').all()
+
+            user_texts = []
+
+            # Iterate from newest to oldest
+            for li in reversed(messages_list):
+                wrapper = li.locator('div.flex.flex-row').first
+                classes = await wrapper.get_attribute('class')
+
+                # Extract message content
+                content = await wrapper.inner_text()
+
+                if "justify-end" in classes:  # Your message → stop      
+                    break
+                elif "justify-start" in classes:  # User message → accumulate
+                    user_texts.append(content)
+
+            # Optional: reverse to chronological order
+            user_texts.reverse()
+
+            # Combine into a single string if needed
+            total_user_text = "\n".join(user_texts)
+        except Exception as e : 
+            logger.error(f'Getting last seller messages within conv {conv_id} Failed: {e}')
+
+        if not total_user_text:
+            logger.info(f'The last message was sent by me for conv: {conv_id}')
+            return
+        
+        listing_id = self.database_manager.get_listing_id(conv_id)
+        if not listing_id :
+            logger.warning(f'No listing associated with  this conversation.')
+            return
+        listing_id= listing_id[0]
+        if not total_user_text:
+            logger.warning(f'No new messages detected')
+            return
+          # send it to server get reply 
+        to_send=''
+        try:
+            data = {
+            "chat_id": listing_id,
+            "role": "user",
+            "content":total_user_text
+            }
+
+            logger.info(f'Contacting the LLM to get reply for the folowing message: {data}')
+            
+            response = requests.post(url ='http://localhost:8080/chat', json= data)
+            if response.status_code==200:
+                to_send= json.loads(response.content)['reply']
+            # send the message 
+        except Exception as e :
+            logger.error(f'Error while Generating response for last  seller  message  within conv {conv_id} : {e}')
+        if not to_send:
+            logger.warning(f'The message to send is empty aborting ...')
+            return         
+        try:
+            text_area = page.locator('textarea[aria-label="Ecrire mon message"]').first
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await text_area.click()
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await text_area.fill(to_send)
+
+            send_button= page.get_by_role("button", name="Envoyer mon message")
+            await asyncio.sleep(random.uniform(1, 4.3))
+            await send_button.click()
+            logger.info(f'Automatically replied to seller : {conv_id}')
+            await page.wait_for_load_state("load")  
+        except Exception as e :
+            logger.error(f'Exception  while Sending  response for last  seller  message  within conv {conv_id}: {e}')
+        
+         # it is time Now to evaluate the conversation for termination 
+        ready = False 
+        try :
+            data = {
+            "chat_id": listing_id,
+            }
+            ready =False 
+            logger.info('Evaluating conversation to check if its ready for report ! ')
+            response = requests.post(url ='http://localhost:8080/evaluate', json= data)
+            if response.status_code==200:
+                ready= json.loads(response.content)['finished']
+            
+        except Exception as e :
+            logger.error(f'Error while evaluting  conv {conv_id} for completion: {e}')
+
+    
+        try : 
+            if ready :
+                # send email with full report 
+                # extract the conversation to include it in the eamail
+                
+                send_listing_report(
+                    listing_id= listing_id
+                )
+        except Exception as e :
+            logger.error(f'Failed to send report Email: {e}')
+
+
+
     async def handle_messages(self):
         """
         checks the messages page for new messages and replying automatically 
@@ -126,7 +246,7 @@ class LeBonCoinScraper:
             logger.error(f"Could not  find the messages button or its status badge :{e}" )
 
         try:
-            if await badge.is_visible():
+            if await badge.is_visible() or True:
 
                 try:
                     badge_text = await badge.inner_text()
@@ -137,104 +257,33 @@ class LeBonCoinScraper:
                     await page.wait_for_load_state("load")
                     await asyncio.sleep(random.uniform(1, 4.3))
 
-                    logger.info(f"checking the conversations in the conversations page .")
+                    # handling the first conversation as it needs special treatment 
+                    await self.handle_conversation(page)
+                   
+
+                    # filtering only unread messages
+
+                    unread_button = page.get_by_role("button", name="Non lus").first
+                    await asyncio.sleep(random.uniform(1, 4.3))
+                    await unread_button.click()
+                    await asyncio.sleep(random.uniform(1, 4.3))
+
+                    logger.info(f"checking the unread conversations in the conversations page .")
 
                     conversations = await page.locator('div[aria-label="Liste des conversations"] ul li').all()
 
                 
-                    logger.info(f'We have {len(conversations)}  conversations to handle')
+                    logger.info(f'We have {len(conversations)}  unread  conversations to handle (excluding first conversation !)')
                 except Exception as e :
                     logger.error(f"Could not  access the conversations page :{e}" )
 
                 
                 for conv in conversations:
-                    new_messages_number = await  self.get_number_of_new_messages(conv)
-                    if  new_messages_number== 0:
-                        continue
                     await asyncio.sleep(random.uniform(1, 4.3))
                     await conv.click()
                     await page.wait_for_load_state("load")
-                    conv_id = page.url.split('/')[-1]
-                    logger.info(f'Checking conversation : {conv_id}')
-                    listing_id = self.database_manager.get_listing_id(conv_id)
-                    if not listing_id:
-                        logger.info(f'Ignore this conversation as it not handled by me : {conv_id} : {listing_id}')
-                        continue
-                   
-
-                # get new message 
-                    try: 
-                        seller_message= ""
-                        messages_list =await page.locator('div[aria-label="Conversation"] ol li ').all()
-                        logger.info('Extracting last messages sent by the seller')
-                        for msg in messages_list[-new_messages_number:]:
-                            msg_text = await msg.inner_text()
-                            seller_message += '/n' + msg_text
-                    except Exception as e : 
-                        logger.error(f'Getting last seller messages within conv {conv_id} Failed: {e}')
-                    
-
-                    # send it to server get reply 
-                    try:
-                        data = {
-                        "chat_id": listing_id,
-                        "role": "user",
-                        "content":seller_message
-                        }
-
-                        logger.info('Contacting the LLM to get reply')
-                        
-                        response = requests.post(url ='http://localhost:8080/chat', json= data)
-                        if response.status_code==200:
-                            to_send= json.loads(response.content)['reply']
-                        # send the message 
-                    except Exception as e :
-                        logger.error(f'Error while Generating response for last  seller  message  within conv {conv_id} : {e}')
-                    
-
-                    try:
-
-                        text_area = page.locator('textarea[aria-label="Ecrire mon message"]').first
-                        await asyncio.sleep(random.uniform(1, 4.3))
-                        await text_area.click()
-                        await asyncio.sleep(random.uniform(1, 4.3))
-                        await text_area.fill(to_send)
-
-                        send_button= page.get_by_role("button", name="Envoyer mon message")
-                        await asyncio.sleep(random.uniform(1, 4.3))
-                        await send_button.click()
-                        logger.info(f'Automatically replied to seller : {conv_id}')
-                        await page.wait_for_load_state("load")  
-                    except Exception as e :
-                        logger.error(f'Exception  while Sending  response for last  seller  message  within conv {conv_id}: {e}')
-
-
-                    # it is time Now to evaluate the conversation for termination 
-                    ready = False 
-                    try :
-                        data = {
-                        "chat_id": listing_id,
-                        }
-                        ready =False 
-                        logger.info('Evaluating conversation to check if its ready for report ! ')
-                        response = requests.post(url ='http://localhost:8080/evaluate', json= data)
-                        if response.status_code==200:
-                            ready= json.loads(response.content)['status']
-                        
-                    except Exception as e :
-                        logger.error(f'Error while evaluting  conv {conv_id} for completion: {e}')
-
-                
-                    try : 
-                        if ready :
-                            # send email with full report 
-                            # extract the conversation to include it in the eamail
-                            
-                            send_email(
-                                listing_id= listing_id
-                            )
-                    except Exception as e :
-                        logger.error(f'Failed to send report Email: {e}')
+                    await asyncio.sleep(random.uniform(1, 4.3))
+                    await self.handle_conversation(page)
             
             else:
                 logger.info("✅ No new notifications.")
@@ -405,8 +454,10 @@ class LeBonCoinScraper:
             try: 
                 await asyncio.sleep(random.uniform(6, 8))
                 see_conversation =  page.locator("a", has_text="Voir ma conversation").first
+                await see_conversation.wait_for(state="visible", timeout=10000)
                 await asyncio.sleep(random.uniform(1, 4.3))
                 await see_conversation.click()
+                await asyncio.sleep(random.uniform(1, 4.3))
                 await page.wait_for_load_state("load")
             except  Exception as e :
                 logger.error(f'Error while trying to see the first conversation: {e}')    
@@ -417,9 +468,10 @@ class LeBonCoinScraper:
                 await asyncio.sleep(random.uniform(3, 8))
                 url = page.url
                 conversation_id = url.split('/')[-1]
+                assert is_valid_uuid(conversation_id)
                 
             except  Exception as e :
-                logger.error(f'Error while getting the conversation id: {e}')    
+                logger.error(f'Error while getting the conversation id => Extracted  {conversation_id}: {e}')    
                 
             try :
                 conv_data = {
