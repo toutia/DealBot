@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from llama_cpp import Llama
 import uvicorn
 import os, json,re
+from utils import *
 import pickle
 """
 
@@ -47,10 +48,7 @@ import pickle
 """
 app = FastAPI()
 
-# ---- CONFIG ----
-MODEL_PATH = "/home/touti/models/gpt-oss-20b-fp16.gguf"
-SESSIONS_DIR = "./sessions"
-os.makedirs(SESSIONS_DIR, exist_ok=True)
+
 
 # ---- LOAD MODEL ----
 llm = Llama(
@@ -67,23 +65,9 @@ class ChatTurn(BaseModel):
     role: str  # "user" or "assistant"
     content: str
 
-def extract_final_message(raw_content: str) -> str:
-    """
-    Extract only the final assistant message from the model output.
-    """
-    pattern = r"<\|start\|>assistant<\|channel\|>final<\|message\|>(.*)"
-    match = re.search(pattern, raw_content, re.DOTALL)
-    if match:
-        # Clean leading/trailing whitespace
-        return match.group(1).strip()
-    return raw_content.strip()  # fallback
 
 
-def get_json_session_path(chat_id: str) -> str:
-    return os.path.join(SESSIONS_DIR, f"{chat_id}.json")
 
-def get_state_path(chat_id: str) -> str:
-    return os.path.join(SESSIONS_DIR, f"{chat_id}.pkl")
 
 
 @app.post("/chat")

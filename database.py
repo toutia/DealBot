@@ -24,9 +24,9 @@ class DatabaseManager:
                 location TEXT,
                 date TEXT,
                 description TEXT
-            )
+            )""")
             
-            CREATE TABLE IF NOT EXISTS conversations (
+        self.cursor.execute( """  CREATE TABLE IF NOT EXISTS conversations (
                 conv_id TEXT PRIMARY KEY,
                 listing_id TEXT NOT NULL,
                 FOREIGN KEY (listing_id) REFERENCES listings(id)
@@ -49,6 +49,10 @@ class DatabaseManager:
             listing['description']
         ))
         self.conn.commit()
+
+    def retrieve_listing(self, listing_id):
+        self.cursor.execute("SELECT * FROM listings WHERE id = ? LIMIT 1", (listing_id,))
+        return self.cursor.fetchone() 
 
     def save_conversation(self, conv):
         self.cursor.execute("""
