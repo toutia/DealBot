@@ -9,9 +9,10 @@ import re
 
 logger = logging.getLogger(__name__)
 
-EMAIL_ADDRESS = "leboncoin.me.assistant@gmail.com"
-EMAIL_PASSWORD = "gytfbueqmkpfkghs"
-TO_EMAIL = "ayoub.touti@icloud.com"
+config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+with open(config_path) as f:
+    credentials = json.load(f)['gmail']
+  
 
 
 def clean_text(text: str) -> str:
@@ -134,17 +135,17 @@ Finish the transaction: {url}
 
     msg = EmailMessage()
     msg["Subject"] = f"DealBot Report: {safe_title}"
-    msg["From"] = EMAIL_ADDRESS
-    msg["To"] = TO_EMAIL
+    msg["From"] = credentials['email']
+    msg["To"] = credentials['to_email']
     msg.set_content(plain_body)
     msg.add_alternative(html_body, subtype="html")
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-        smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+        smtp.login(credentials['email'], credentials['password'])
         smtp.send_message(msg)
-        logger.info(f"📨 Email sent to {TO_EMAIL} ✅")
+        logger.info(f"📨 Email sent to {credentials['to_email']} ✅")
 
 
 
 if __name__=='__main__':
-    send_listing_report('3075255328')
+    send_listing_report('3067309470')
